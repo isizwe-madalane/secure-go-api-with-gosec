@@ -1,0 +1,66 @@
+name: Go Security Scan
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  pull-requests: write
+  contents: read
+  security-events: write
+
+jobs:
+  gosec-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run GoSec Scanner
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail -fmt json -out results.json ./...'
+
+      - name: Parse Results & Comment on PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+
+            const results = JSON.parse(fs.readFileSync('results.json', 'utf8'));
+            const issues = results.Issues;
+
+            if (issues.length === 0) {
+              console.log("No issues found.");
+              return;
+            }
+
+            // Build a Markdown Table of failures
+            let commentBody = "### Security Vulnerabilities Detected\n\n";
+            commentBody += "| Severity | Rule | File | Line |\n";
+            commentBody += "| :--- | :--- | :--- | :--- |\n";
+
+            let failed = false;
+            issues.forEach(issue => {
+               const fileName = issue.file.replace("/github/workspace/", "");
+               commentBody += `| **${issue.severity}** | ${issue.rule_id} | \`${fileName}\` | ${issue.line} |\n`;
+               
+               if (issue.severity === "HIGH" || issue.severity === "CRITICAL") {
+                 failed = true;
+               }
+            });
+
+            commentBody += "\n**⚠️ PR Blocked: Please fix Critical/High issues.**";
+
+            // Post Comment
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
+
+            if (failed) {
+               core.setFailed("Security scan failed: Critical/High vulnerabilities found.");
+            }
