@@ -6,13 +6,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	// Setup a dummy database
-	os.Remove("users.db")
+	// Fix: G104
+	_ = os.Remove("users.db")
+
+	// Setup database
 	db, err := sql.Open("sqlite3", "./users.db")
 
 	if err != nil {
@@ -32,18 +35,35 @@ func main() {
 	http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")
 
-		query := fmt.Sprintf("SELECT apikey FROM users WHERE id = %s", id)
+		// Vulnerable Query
+		// query := fmt.Sprintf("SELECT apikey FROM users WHERE id = %s", id)
 
-		rows, err := db.Query(query)
+		// Fix: Parameterized Query
+		query := "SELECT apikey FROM users WHERE id = ?"
+
+		// Pass `id` as part of the db.Query
+		rows, err := db.Query(query, id)
 		if err != nil {
 			http.Error(w, "Database error", 500)
 			return
 		}
 		defer rows.Close()
 
-		w.Write([]byte("User found (if this were real, a JSON object would be returned)"))
+		// Fix: G104
+		if _, err := w.Write([]byte("User found (if this were real, a JSON object would be returned)")); err != nil {
+			log.Printf("Failed to write response: %v", err)
+		}
 	})
 
 	fmt.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// Fix: G114
+	srv := &http.Server{
+		Addr:              ":8080",
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+	}
+
+	log.Fatal(srv.ListenAndServe())
 }
