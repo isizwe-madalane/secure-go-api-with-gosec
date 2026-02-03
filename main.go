@@ -32,9 +32,14 @@ func main() {
 	http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")
 
-		query := fmt.Sprintf("SELECT apikey FROM users WHERE id = %s", id)
+		// Vulnerable Query
+		// query := fmt.Sprintf("SELECT apikey FROM users WHERE id = %s", id)
 
-		rows, err := db.Query(query)
+		// Fix: Parameterized Query
+		query := "SELECT apikey FROM users WHERE id = ?"
+
+		// Pass `id` as part of the db.Query
+		rows, err := db.Query(query, id)
 		if err != nil {
 			http.Error(w, "Database error", 500)
 			return
